@@ -1,5 +1,6 @@
 {
   "name": "agroprod",
+  "type": "module",
   "version": "1.0.0",
   "description": "Proyecto Programacion II Express/SQL/TypeScript",
   "main": "index.js",
