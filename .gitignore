@@ -1,6 +1,27 @@
+# Dependencies
 /node_modules
+
+# Environment
 .env
+.env.local
+.env.*.local
 
-/generated/prisma
+# Build/Artifacts
+/dist
+/build
+/out
 
-/prisma/migrations
+# IDEs/Editors
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Prisma (Keep migrations, exclude local client)
+/node_modules/.prisma
+/prisma/client
