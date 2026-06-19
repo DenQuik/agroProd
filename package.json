@@ -18,7 +18,7 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "test": "console.log(hi)"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
