@@ -11,3 +11,60 @@ generator client {
 datasource db {
   provider = "mysql"
 }
+
+// 1. Ubicación Geográfica
+model Estado {
+  id         Int         @id @default(autoincrement())
+  nombre     String      @unique
+  municipios Municipio[]
+}
+
+model Municipio {
+  id        Int         @id @default(autoincrement())
+  nombre    String
+  estadoId  Int
+  estado    Estado      @relation(fields: [estadoId], references: [id])
+  parroquias Parroquia[]
+}
+
+model Parroquia {
+  id          Int       @id @default(autoincrement())
+  nombre      String
+  municipioId Int
+  municipio   Municipio @relation(fields: [municipioId], references: [id])
+  predios     Predio[]
+}
+
+// 2. Productores y sus Marcas
+model Productor {
+  id        Int      @id @default(autoincrement())
+  cedulaRif String   @unique
+  nombre    String
+  telefono  String
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  
+  // Relación 1 a 1: Un productor tiene una sola marca, una marca pertenece a un productor
+  marca     Marca?
+  predios   Predio[]
+}
+
+model Marca {
+  id          Int       @id @default(autoincrement())
+  rutaImagen  String    // Dónde se guardará el archivo PNG
+  hashImagen  String    @unique // Para evitar que se repita la imagen exacta
+  productorId Int       @unique
+  productor   Productor @relation(fields: [productorId], references: [id], onDelete: Cascade)
+}
+
+// 3. Las Fincas (Predios)
+model Predio {
+  id          Int       @id @default(autoincrement())
+  nombre      String
+  coordenadas String?   // Opcional por si quieren meter latitud/longitud
+  sector      String
+  parroquiaId Int
+  parroquia   Parroquia @relation(fields: [parroquiaId], references: [id])
+  productorId Int
+  productor   Productor @relation(fields: [productorId], references: [id], onDelete: Cascade)
+}
