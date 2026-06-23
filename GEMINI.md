@@ -1,20 +1,22 @@
 # agroProd - Guía del Desarrollador y Mandatos del Sistema (GEMINI.md)
 
-Este archivo sirve como manual de instrucciones, arquitectura y estándares de desarrollo para el proyecto **agroProd**. Es la fuente de la verdad para cualquier agente de IA (como Gemini) o desarrollador que trabaje en esta base de código.
+Este archivo sirve como manual de instrucciones, arquitectura y estándares de desarrollo para el proyecto **agroProd**. Es la fuente de la verdad para cualquier desarrollador o agente de IA que trabaje en esta base de código.
 
 ---
 
 ## 1. Descripción del Proyecto y Arquitectura
 
-**agroProd** (Sistema de Gestión Agroproductiva) es un sistema diseñado para registrar y administrar productores agropecuarios, sus marcas comerciales y sus respectivos predios (fincas). Toda la información está organizada jerárquicamente por ubicación geográfica.
+**agroProd** (Sistema de Gestión Agroproductiva) es una aplicación backend diseñada para registrar y administrar productores agropecuarios, sus marcas comerciales y sus respectivos predios (fincas), todos organizados jerárquicamente por ubicación geográfica.
 
 ### Stack Tecnológico
 - **Entorno de Ejecución (Runtime):** Node.js con TypeScript.
-- **Framework Web:** Express 5.x (soporte nativo de rutas asíncronas).
-- **Manejador de Base de Datos (ORM):** Prisma 7.x utilizando `@prisma/adapter-mariadb` para conectarse a una base de datos MySQL o MariaDB.
-- **Base de Datos:** MySQL / MariaDB (Nombre de la base de datos: `agroprod_db`).
-- **Autenticación & Seguridad:** `bcrypt` para hash de contraseñas, `jsonwebtoken` para tokens JWT.
-- **Utilerías de Desarrollo:** `tsx` para watch mode y ejecución instantánea en desarrollo sin paso de build separado, y `typescript` para tipado estático estricto.
+- **Configuración de Módulos:** ESNext con ESM (`"type": "module"` en `package.json`).
+- **Framework Web:** Express 5.x (con soporte nativo para rutas asíncronas).
+- **ORM / Acceso a Datos:** Prisma 7.x utilizando `@prisma/adapter-mariadb` para conectarse a una base de datos MySQL o MariaDB de forma adaptada.
+- **Base de Datos:** MySQL / MariaDB (Base de datos local: `agroprod_db`).
+- **Autenticación & Seguridad:** `bcrypt` para hash de contraseñas y `jsonwebtoken` para tokens JWT.
+- **Validación de Datos:** `zod` para validaciones de esquemas estrictos.
+- **Utilerías de Desarrollo:** `tsx` para watch mode y ejecución directa en desarrollo sin paso de build separado, y `typescript` para tipado estático estricto.
 
 ---
 
@@ -23,31 +25,48 @@ Este archivo sirve como manual de instrucciones, arquitectura y estándares de d
 Para asegurar la consistencia y el correcto funcionamiento del sistema, se deben seguir rigurosamente las siguientes directrices:
 
 ### 2.1 Extensiones `.js` en Importaciones Relativas
-Debido a la configuración de módulos en TypeScript (`"module": "ESNext"`, `"moduleResolution": "bundler"`, `"target": "ES2023"`) y el uso de ESM (`"type": "module"` en `package.json`), **todas las importaciones relativas dentro del código fuente de TypeScript deben usar explícitamente el sufijo `.js`**.
+Debido a la configuración de módulos de TypeScript (`"module": "ESNext"`, `"moduleResolution": "bundler"`, `"target": "ES2023"`) y el uso de ESM (`"type": "module"` en `package.json`), **todas las importaciones relativas dentro del código fuente de TypeScript deben usar explícitamente el sufijo `.js`**.
 *   **Correcto:** `import { prisma } from '../lib/prisma.js';`
 *   **Incorrecto:** `import { prisma } from '../lib/prisma';`
 
 ### 2.2 Singleton de Base de Datos y Ubicación de Cliente Prisma
-El cliente de Prisma se genera en una ruta personalizada (`generated/prisma`) en lugar de la ubicación por defecto dentro de `node_modules`. 
-*   **Cliente Generado:** Ubicado en `./generated/prisma`
-*   **Acceso Centralizado:** No se debe instanciar `PrismaClient` directamente en los controladores o rutas. En su lugar, se debe importar la instancia singleton desde `./lib/prisma.js`:
-    ```typescript
-    import { prisma } from '../lib/prisma.js';
-    ```
-*   **Adaptador de Base de Datos:** Prisma está configurado con un adaptador MariaDB para gestionar la base de datos de manera óptima:
-    ```typescript
-    import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-    import { PrismaClient } from "../generated/prisma/client";
-    ```
+El cliente de Prisma se genera en una ruta personalizada (`generated/prisma`) en lugar de la ubicación por defecto dentro de `node_modules`.
+- **Cliente Generado:** Ubicado en `./generated/prisma`
+- **Acceso Centralizado:** No se debe instanciar `PrismaClient` directamente en los controladores o rutas. En su lugar, se debe importar la instancia singleton desde `./lib/prisma.js`:
+  ```typescript
+  import { prisma } from '../lib/prisma.js';
+  ```
+- **Adaptador de Base de Datos:** Prisma está configurado con un adaptador MariaDB para gestionar la base de datos de manera óptima:
+  ```typescript
+  import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+  import { PrismaClient } from "../generated/prisma/client";
+  ```
 
 ### 2.3 Tipado Estricto de TypeScript
-El compilador está configurado con `"strict": true`. 
-*   No uses tipos `any` implícitos ni explícitos.
-*   Declara explícitamente los tipos de datos en parámetros y retornos de funciones si TypeScript no los infiere automáticamente de forma segura.
-*   No uses casts de tipo innecesarios o inseguros (ej. `as any`).
+El compilador está configurado con `"strict": true`.
+- No uses tipos `any` implícitos ni explícitos.
+- Declara explícitamente los tipos de datos en parámetros y retornos de funciones si TypeScript no los infiere automáticamente de forma segura.
+- No uses casts de tipo innecesarios o inseguros (como `as any`).
 
 ### 2.4 Control de Errores y Express 5
-Express 5 gestiona las promesas rechazadas en manejadores asíncronos de forma automática (no requiere middleware especial para atrapar errores no manejados), pero se recomienda encapsular las operaciones con bloques `try/catch` para devolver respuestas limpias y estructuradas en formato JSON.
+Express 5 gestiona las promesas rechazadas en manejadores asíncronos de forma automática sin necesidad de middlewares especiales de captura de promesas. Sin embargo, para responder adecuadamente se utiliza:
+- **`AppError`**: Una clase de error personalizada para lanzar errores operativos con estados HTTP específicos.
+- **`errorMiddleware`**: Middleware centralizado que formatea las respuestas de error ante:
+  - Validaciones fallidas de Zod (`ZodError` -> devuelve 400 con detalles).
+  - Errores conocidos de Prisma (por ejemplo, llaves duplicadas `P2002` -> devuelve 409 con mensaje limpio).
+  - Instancias de `AppError` -> devuelve el código de estado correspondiente y mensaje.
+  - Otros errores no controlados -> devuelve 500.
+
+### 2.5 Validación con Zod
+Todas las entradas de las peticiones HTTP (parámetros de ruta, query params, cuerpo de petición) deben validarse en los controladores o middlewares utilizando un esquema Zod definido en `src/validators/`.
+- Ejemplo de validación en controlador:
+  ```typescript
+  const body = loginSchema.parse(req.body);
+  ```
+
+### 2.6 Constantes y Formatos Estructurados
+- **Estados HTTP:** Utilizar siempre el objeto congelado `HTTP_STATUS` definido en `src/constants/http-status.constants.ts` (ej. `HTTP_STATUS.OK`, `HTTP_STATUS.BAD_REQUEST`).
+- **Expresiones Regulares:** Para validación de datos estándar como Cédula/RIF o Teléfono, utilizar los patrones regex en `src/constants/regex.constants.ts`.
 
 ---
 
@@ -55,21 +74,23 @@ Express 5 gestiona las promesas rechazadas en manejadores asíncronos de forma a
 
 El modelo de datos está estructurado en tres grandes bloques que deben ser mantenidos consistentes:
 
-### 3.1 Ubicación Geográfica
-Estructura jerárquica de relación de uno a muchos:
-*   **Estado** `Estado`: Contiene id y nombre único.
-*   **Municipio** `Municipio`: Pertenece a un `Estado`.
-*   **Parroquia** `Parroquia`: Pertenece a un `Municipio` y se conecta directamente con los predios.
+### 3.1 Ubicación Geográfica (Relación Jerárquica)
+- **Estado (`Estado`):** Contiene `id` y `nombre` único.
+- **Municipio (`Municipio`):** Pertenece a un `Estado`. Unicidad compuesta por `[nombre, estadoId]`.
+- **Parroquia (`Parroquia`):** Pertenece a un `Municipio`. Unicidad compuesta por `[nombre, municipioId]`. Se conecta directamente con los predios.
 
-### 3.2 Productores y Marcas
-Relación 1:1 estricta:
-*   **Productor** `Productor`: Almacena la cédula o RIF único, nombre, teléfono, fecha de creación y estado activo.
-*   **Marca** `Marca`: Pertenece a un único productor. Almacena la ruta de la imagen física y un hash único (`hashImagen`) para evitar imágenes duplicadas. El borrado de un productor causa el borrado en cascada de su marca asociada (`onDelete: Cascade`).
+### 3.2 Productores y Marcas (Relación 1:1 Estricta)
+- **Productor (`Productor`):** Almacena `cedulaRif` (único), `nombre`, `apellido`, `telefono`, y estado `activo`.
+- **Marca (`Marca`):** Pertenece a un único productor. Almacena `codigo`, `rutaImagen` y un hash único (`hashImagen`) de la imagen para evitar duplicaciones físicas.
+  - El borrado de un productor causa el borrado en cascada de su marca asociada (`onDelete: Cascade`).
 
-### 3.3 Predios (Fincas)
-*   **Predio** `Predio`: Almacena el nombre de la finca, coordenadas opcionales, sector, ID de parroquia, e ID del productor.
-*   Pertenece a un `Productor` (borrado en cascada `onDelete: Cascade`).
-*   Pertenece a una `Parroquia` geográfica.
+### 3.3 Predios o Fincas
+- **Predio (`Predio`):** Representa las fincas. Almacena `nombre`, `latitud` (Float), `longitud` (Float), `sector`, `parroquiaId` (FK) y `productorId` (FK).
+  - Pertenece a un `Productor` (borrado en cascada `onDelete: Cascade`).
+  - Pertenece a una `Parroquia` geográfica.
+
+### 3.4 Usuarios del Sistema
+- **Usuario (`Usuario`):** Almacena `username` (único), `password` (bcrypt hash), `nombre`, y `rol` ("ADMIN" | "ANALISTA").
 
 ---
 
@@ -119,7 +140,7 @@ En el `package.json` se proveen los siguientes scripts para el ciclo de vida del
     ```bash
     npm test
     ```
-    *(Por implementar)*
+    *Actualmente configurado como placeholder.*
 
 ---
 
@@ -132,23 +153,35 @@ C:\laragon\www\agroProd\
 ├───package.json            # Configuración de dependencias y scripts de ejecución.
 ├───tsconfig.json           # Configuración de compilación de TypeScript (ESNext/ES2023).
 ├───prisma.config.ts        # Configuración del CLI de Prisma.
-├───RESUMEN_SISTEMA.md      # Descripción técnica rápida y resumen del estado del software.
-├───generated/              # Directorio donde se genera el cliente Prisma personalizado.
-│   └───prisma/
 ├───lib/
 │   └───prisma.ts           # Inicialización y exportación del cliente singleton de Prisma con el adaptador MariaDB.
 ├───prisma/
-│   ├───schema.prisma       # Definición de modelos de datos, relaciones y fuente de datos.
+│   ├───schema.prisma       # Definición de modelos de datos, relaciones y fuentes de datos de Prisma.
+│   ├───seed.ts             # Semillero geopolítico y de usuarios del sistema.
 │   └───migrations/         # Migraciones SQL controladas por Prisma.
 └───src/
-    └───index.ts            # Punto de entrada de la aplicación Express y definición de servidor/endpoints.
+    ├───index.ts            # Punto de entrada de la aplicación Express y definición de servidor/endpoints.
+    ├───config/             # Configuraciones del sistema (Entorno, JWT).
+    ├───constants/          # Valores constantes globales (Estados HTTP, expresiones regulares).
+    ├───controllers/        # Controladores que reciben peticiones HTTP, validan parámetros y llaman a servicios.
+    ├───errors/             # Clases de error personalizadas (AppError).
+    ├───middlewares/        # Middlewares globales (Error middleware, autenticación, carga de archivos).
+    ├───routes/             # Definición de enrutadores de Express estructurados por dominio.
+    ├───services/           # Lógica de negocio e interacción con Prisma.
+    ├───types/              # Declaración de tipos y extensiones globales de Express.
+    ├───utils/              # Funciones utilitarias secundarias.
+    └───validators/         # Esquemas de validación de datos con Zod.
 ```
 
 ---
 
 ## 7. Directrices para Nuevas Rutas y Funcionalidades
 
-1.  **Mantener la modularidad:** Cuando se implementen los controladores para Productores, Marcas, Predios y Ubicaciones, separarlos en carpetas correspondientes (ej. `src/routes/` y `src/controllers/`).
-2.  **Validación de Entradas:** Validar siempre los campos clave en las peticiones HTTP (por ejemplo, validación de formato de Cédula/RIF, verificación de número telefónico, y control de hash de marcas).
-3.  **Manejo de Archivos:** Las imágenes de las marcas deben gestionarse de manera segura, almacenando su ruta en disco o almacenamiento local y calculando su hash MD5/SHA256 antes de guardarlo para mantener la unicidad en el campo `hashImagen`.
-4.  **Uso de la Base de Datos:** Usar transacciones de Prisma (`prisma.$transaction`) si se crean registros dependientes múltiples para evitar estados inconsistentes (por ejemplo, registrar un Productor y su Marca asociada en una misma petición).
+1.  **Modularidad estricta:** Al implementar endpoints para nuevos recursos (ej. marcas, productores, predios), se debe seguir rigurosamente la separación de responsabilidades:
+    - **Ruta (`routes`)**: Define los endpoints y asocia middlewares (como `authMiddleware`).
+    - **Validador (`validators`)**: Crea los esquemas de Zod para las entradas.
+    - **Controlador (`controllers`)**: Parsear peticiones mediante los validadores, ejecutar servicios y retornar respuestas HTTP formateadas con códigos de `HTTP_STATUS`.
+    - **Servicio (`services`)**: Aloja la lógica de base de datos e interacción con Prisma.
+2.  **Manejo de Transacciones:** Al crear registros dependientes múltiples (por ejemplo, registrar un Productor y su Marca asociada en una misma petición), se debe usar siempre transacciones de Prisma (`prisma.$transaction`) para evitar dejar la base de datos en estados inconsistentes.
+3.  **Seguridad:** Proteger endpoints que requieran roles o sesión activa utilizando el `authMiddleware`. El middleware expone los datos del usuario logueado en `req.usuario` (`id`, `username`, `rol`).
+4.  **Manejo seguro de imágenes:** Las imágenes de marcas se guardan en el servidor físico. Antes de procesarlas, se debe validar su formato y calcular su hash utilizando algoritmos criptográficos o librerías de hash de imágenes (como `image-hash`), asegurando que se compare con el campo único `hashImagen` en la base de datos antes de permitir el guardado para evitar duplicaciones.

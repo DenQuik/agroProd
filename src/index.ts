@@ -4,6 +4,7 @@ import cors from 'cors';
 import { prisma } from '../lib/prisma.js';
 import authRoutes from './routes/auth.routes.js';
 import geografiaRoutes from './routes/geografia.routes.js';
+import productorRoutes from './routes/productor.routes.js';
 import { errorMiddleware } from './middlewares/error.middleware.js';
 
 
@@ -32,6 +33,7 @@ app.get('/health', async (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/geografia', geografiaRoutes);
+app.use('/api/productores', productorRoutes);
 
 app.use(errorMiddleware);
 

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import { AppError } from '../errors/app.error.js';
 import { HTTP_STATUS } from '../constants/http-status.constants.js';
 
 interface PrismaKnownError {
@@ -49,6 +50,11 @@ export function errorMiddleware(
     res.status(HTTP_STATUS.BAD_REQUEST).json({
       error: `Error de base de datos: ${err.message}`,
     });
+    return;
+  }
+
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({ error: err.message });
     return;
   }
 

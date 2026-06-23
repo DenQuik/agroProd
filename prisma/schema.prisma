@@ -56,8 +56,9 @@ model Productor {
 
 model Marca {
   id          Int       @id @default(autoincrement())
-  rutaImagen  String    // Dónde se guardará el archivo PNG
-  hashImagen  String    @unique // Para evitar que se repita la imagen exacta
+  codigo      String
+  rutaImagen  String
+  hashImagen  String    @unique
   productorId Int       @unique
   productor   Productor @relation(fields: [productorId], references: [id], onDelete: Cascade)
 }
