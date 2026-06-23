@@ -1,7 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
-import { PrismaClientKnownRequestError } from '../../generated/prisma/client/runtime/library.js';
 import { HTTP_STATUS } from '../constants/http-status.constants.js';
+
+interface PrismaKnownError {
+  code: string;
+  message: string;
+  meta?: Record<string, unknown>;
+}
+
+function isPrismaKnownError(err: unknown): err is PrismaKnownError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    'message' in err &&
+    typeof (err as Record<string, unknown>)['code'] === 'string' &&
+    (err as Record<string, unknown>)['code'] !== undefined
+  );
+}
 
 export function errorMiddleware(
   err: unknown,
@@ -20,9 +36,10 @@ export function errorMiddleware(
     return;
   }
 
-  if (err instanceof PrismaClientKnownRequestError) {
+  if (isPrismaKnownError(err)) {
     if (err.code === 'P2002') {
-      const fields = Array.isArray(err.meta?.['target']) ? (err.meta?.['target'] as string[]).join(', ') : 'campo';
+      const target = err.meta?.['target'];
+      const fields = Array.isArray(target) ? (target as string[]).join(', ') : 'campo';
       res.status(HTTP_STATUS.CONFLICT).json({
         error: `Ya existe un registro con el mismo valor en: ${fields}`,
       });
