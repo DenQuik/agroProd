@@ -1,0 +1,481 @@
+# Plan de Ejecución Detallado - agroProd
+
+Perfectamente alineado. Aquí está el plan de ejecución estructurado por fases, listo para implementar.
+
+---
+
+## 📋 Resumen de Decisiones Confirmadas
+
+| Área | Decisión |
+|------|----------|
+| **Productor** | `nombre` + `apellido` (separados) |
+| **Predio** | `latitud` Float, `longitud` Float (no String) |
+| **Ubicación Principal** | Primer predio registrado (ID más antiguo) |
+| **Auth** | Modelo `Usuario`: id, username (unique), password (bcrypt), nombre, rol (ADMIN/ANALISTA) |
+| **Validación Parroquia** | Pre-check → 400 si no existe |
+| **pHash** | `image-hash` npm, 64 bits, Hamming ≤ 6 = rechazo |
+| **Storage** | `express.static('storage/marcas')` |
+| **CORS** | `FRONTEND_URL` desde `.env` |
+| **JWT** | Access token 8h, sin refresh |
+| **API Response** | Directo (sin envelope) |
+
+---
+
+## 🏗️ FASE 0: Fundación y Base de Datos
+
+### 0.1 Actualizar `prisma/schema.prisma`
+**Cambios en modelos existentes:**
+```prisma
+model Productor {
+  // ... existentes
+  apellido String    // NUEVO
+  // ...
+}
+
+model Predio {
+  // ... existentes
+  // REEMPLAZAR coordenadas String? POR:
+  latitud  Float
+  longitud Float
+  // ...
+}
+```
+
+**Nuevo modelo:**
+```prisma
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String   // bcrypt hash
+  nombre    String
+  rol       String   // "ADMIN" | "ANALISTA"
+  creadoEn  DateTime @default(now())
+}
+```
+
+### 0.2 Migración y Generación
+```bash
+npx prisma migrate dev --name add_apellido_latlon_usuario
+npx prisma generate
+```
+
+### 0.3 Archivos de Configuración Base
+| Archivo | Responsabilidad |
+|---------|-----------------|
+| `src/config/env.config.ts` | Zod schema para `.env` (tipado estricto) |
+| `src/constants/regex.constants.ts` | Regex Cédula/RIF `^[VEJG]-\d{7,9}-\d$`, Teléfono `^04\d{2}-?\d{7}$` |
+| `src/constants/http-status.constants.ts` | Constantes HTTP_STATUS_OK=200, CREATED=201, BAD_REQUEST=400, CONFLICT=409, UNAUTHORIZED=401, INTERNAL=500 |
+| `src/types/express.d.ts` | `declare global { namespace Express { interface Request { usuario?: { id: number; username: string; rol: string } } } }` |
+| `src/middlewares/error.middleware.ts` | Handler global: ZodError→400, PrismaKnownError→400/409, default→500 |
+
+---
+
+## 🌱 FASE 1: Seed Geopolítico y Usuario Inicial
+
+### 1.1 `prisma/seed.ts`
+**Estructura de datos a sembrar:**
+```
+Venezuela (simplificada para el motor agropecuario)
+├── 00. Distrito Capital
+│   └── Libertador → Parroquias: Altagracia, Antímano, Caricuao, Catedral, Coche, El Junquito, El Paraíso, El Recreo, El Valle, La Candelaria, La Pastora, La Vega, Macarao, San Agustín, San Bernardino, San José, San Juan, Santa Rosalía, Santa Teresa, Sucre, 23 de Enero
+├── 10. Miranda
+│   ├── Baruta → Parroquias: El Cafetal, Las Minas de Baruta, Nuestra Señora del Rosario, Santa Cruz del Este
+│   ├── Chacao → Parroquias: Chacao
+│   ├── El Hatillo → Parroquias: El Hatillo, La Lagunita, Las Mayas, Turumo
+│   └── Sucre → Parroquias: Caucagüita, Fila de Mariches, La Dolorita, Leoncio Martínez, Petare, Santa Lucía
+├── 15. Zulia
+│   ├── Maracaibo → Parroquias: Antonio Borjas Romero, Bolívar, Cacique Mara, Caracciolo Parra Pérez, Cecilio Acosta, Chiquinquirá, Coquivacoa, Cristo de Aranza, Idelfonso Vásquez, Juana de Ávila, Luis Hurtado Higuera, Manuel Dagnino, Olegario Villalobos, Raúl Leoni, San Isidro, Santa Lucía, Venancio Pulgar
+│   └── San Francisco → Parroquias: Domitila Flores, Francisco Ochoa, Los Cortijos, Marcial Hernández, José Domingo Rus
+└── 16. Portuguesa
+    ├── Guanare → Parroquias: Biscucuy, Campo Elías, Guanare, San Francisco de Asís
+    └── Turén → Parroquias: Turén, San Rafael de Onoto, Santo Cristo, San José de la Montaña
+```
+
+**Usuario inicial:**
+```ts
+// En seed.ts
+await prisma.usuario.create({
+  data: {
+    username: 'admin',
+    password: await bcrypt.hash('admin123', 10),
+    nombre: 'Administrador Principal',
+    rol: 'ADMIN'
+  }
+})
+```
+
+### 1.3 Ejecución
+```bash
+npx tsx prisma/seed.ts
+```
+
+---
+
+## 🔐 FASE 2: Autenticación (Auth Module)
+
+### 2.1 Estructura
+```
+src/
+├── config/
+│   └── jwt.config.ts           # secret, expiresIn: '8h'
+├── validators/
+│   └── auth.validator.ts       # Zod: username (min 3), password (min 6)
+├── services/
+│   └── auth.service.ts         # login(username, pass) → { token, usuario }
+├── middlewares/
+│   └── auth.middleware.ts      # Bearer token → req.usuario
+├── controllers/
+│   └── auth.controller.ts      # POST /api/auth/login
+└── routes/
+    └── auth.routes.ts          # Router montado en /api/auth
+```
+
+### 2.2 Flujo Login
+1. `validator.middleware` valida body
+2. `auth.service.login()`: busca usuario, `bcrypt.compare`, firma JWT
+3. Retorna `{ token, usuario: { id, username, nombre, rol } }`
+
+### 2.3 Protección de Rutas
+- Middleware `auth.middleware` en todas las rutas **excepto** `/api/auth/login` y `/api/geografia/*` (públicas para selects)
+
+---
+
+## 🗺️ FASE 3: Módulo Geografía (Público)
+
+### 3.1 Archivos
+```
+src/
+├── validators/
+│   └── geografia.validator.ts     # Zod params: estadoId, municipioId (coerce.number().int().positive())
+├── services/
+│   └── geografia.service.ts       # findEstados(), findMunicipiosByEstado(), findParroquiasByMunicipio()
+├── controllers/
+│   └── geografia.controller.ts    # 3 GET endpoints
+└── routes/
+    └── geografia.routes.ts        # /api/geografia/*
+```
+
+### 3.2 Queries Prisma (selectivas)
+```ts
+// geografia.service.ts
+estados:     select: { id: true, nombre: true }, orderBy: { nombre: 'asc' }
+municipios:  select: { id: true, nombre: true, estadoId: true }, where: { estadoId }
+parroquias:  select: { id: true, nombre: true, municipioId: true }, where: { municipioId }
+```
+
+---
+
+## 👨‍🌾 FASE 4: Productores y Predios (Protegido - ANALISTA/ADMIN)
+
+### 4.1 Validación (`src/validators/productor.validator.ts`)
+```ts
+// Zod Schema
+const crearProductorSchema = z.object({
+  body: z.object({
+    cedulaRif: z.string().regex(/^[VEJG]-\d{7,9}-\d$/),
+    nombre: z.string().min(2).max(100),
+    apellido: z.string().min(2).max(100),  // NUEVO
+    telefono: z.string().regex(/^04\d{2}-?\d{7}$/),
+    finca: z.object({
+      nombre: z.string().min(2).max(150),
+      parroquiaId: z.coerce.number().int().positive(),
+      sector: z.string().min(2).max(150),
+      latitud: z.number().min(-90).max(90),
+      longitud: z.number().min(-180).max(180)
+    })
+  })
+})
+```
+
+### 4.2 Service (`src/services/productor.service.ts`)
+```ts
+async crearConPredio(data: CrearProductorDTO) {
+  // 1. Pre-validar parroquiaId existe
+  const parroquia = await prisma.parroquia.findUnique({ where: { id: data.finca.parroquiaId } })
+  if (!parroquia) throw new BadRequestError('Parroquia no encontrada')
+
+  // 2. Transacción atómica
+  return prisma.$transaction(async (tx) => {
+    const productor = await tx.productor.create({
+      data: {
+        cedulaRif: data.cedulaRif,
+        nombre: data.nombre,
+        apellido: data.apellido,
+        telefono: data.telefono,
+        predios: {
+          create: {
+            nombre: data.finca.nombre,
+            sector: data.finca.sector,
+            latitud: data.finca.latitud,
+            longitud: data.finca.longitud,
+            parroquiaId: data.finca.parroquiaId
+          }
+        }
+      }
+    })
+    return { productorId: productor.id }
+  })
+}
+```
+
+### 4.3 Controller + Routes
+- `POST /api/productores` → 201 + `{ mensaje, productorId }`
+- Middleware chain: `validator` → `auth` → `controller`
+
+---
+
+## 🏷️ FASE 5: Marcas y Procesamiento de Imágenes (Complejo)
+
+### 5.1 Dependencias
+```bash
+npm install sharp multer image-hash
+npm install -D @types/multer
+```
+
+### 5.2 Middleware Upload (`src/middlewares/upload.middleware.ts`)
+```ts
+// Multer MemoryStorage
+// fileFilter: solo 'image/png'
+// limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+```
+
+### 5.3 Utilidad Hamming (`src/utils/hash-comparer.util.ts`)
+```ts
+export function hammingDistance(hash1: string, hash2: string): number {
+  // Ambos hex strings de 16 chars (64 bits)
+  const buf1 = Buffer.from(hash1, 'hex')
+  const buf2 = Buffer.from(hash2, 'hex')
+  let diff = 0
+  for (let i = 0; i < buf1.length; i++) {
+    diff += (buf1[i] ^ buf2[i]).toString(2).split('1').length - 1
+  }
+  return diff
+}
+
+export function esDuplicado(nuevoHash: string, hashesExistentes: string[]): boolean {
+  return hashesExistentes.some(h => hammingDistance(nuevoHash, h) <= 6)
+}
+```
+
+### 5.4 Service Imagen (`src/services/imagen.service.ts`)
+```ts
+import { imageHash } from 'image-hash'
+import sharp from 'sharp'
+
+async procesarYValidar(buffer: Buffer): Promise<string> {
+  // 1. Normalizar con Sharp
+  const normalized = await sharp(buffer)
+    .resize(256, 256, { fit: 'fill' })
+    .grayscale()
+    .normalize()
+    .png()
+    .toBuffer()
+
+  // 2. pHash
+  const hash = await new Promise<string>((resolve, reject) => {
+    imageHash.phash(normalized, 64, (err, hash) => err ? reject(err) : resolve(hash))
+  })
+
+  // 3. Comparar contra BD
+  const existentes = await prisma.marca.findMany({ select: { hashImagen: true } })
+  if (esDuplicado(hash, existentes.map(m => m.hashImagen))) {
+    throw new ConflictError('Estructura de marca rechazada. Se detectó una coincidencia de patrón superior al límite tolerado con una marca registrada previamente.')
+  }
+
+  // 4. Guardar archivo físico
+  const filename = `${hash}.png`
+  const filepath = path.join('storage/marcas', filename)
+  await fs.promises.writeFile(filepath, normalized)
+
+  return hash  // Se guarda en BD
+}
+```
+
+### 5.5 Controller + Routes
+- `POST /api/productores/:productorId/marca` (multipart)
+- Validar: productor existe, no tiene marca ya
+- Chain: `upload.single('imagen')` → `validator` (params) → `auth` → `controller`
+
+---
+
+## 📊 FASE 6: Reportes (Protegido)
+
+### 6.1 Service (`src/services/reporte.service.ts`)
+```ts
+async listarProductores(filtros: { activo?: boolean; estadoId?: number; municipioId?: number }, page: number, limit: number) {
+  const where: Prisma.ProductorWhereInput = {}
+  
+  if (filtros.activo !== undefined) where.activo = filtros.activo
+  if (filtros.estadoId) {
+    where.predios = { some: { parroquia: { municipio: { estadoId: filtros.estadoId } } } }
+  }
+  if (filtros.municipioId) {
+    where.predios = { some: { parroquia: { municipioId: filtros.municipioId } } }
+  }
+
+  const [data, total] = await Promise.all([
+    prisma.productor.findMany({
+      where,
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, cedulaRif: true, nombre: true, apellido: true, activo: true,
+        _count: { select: { predios: true } },
+        predios: { take: 1, orderBy: { id: 'asc' }, select: { parroquia: { select: { municipio: { select: { nombre: true, estado: { select: { nombre: true } } } } } } } },
+        marca: { select: { id: true } }
+      }
+    }),
+    prisma.productor.count({ where })
+  ])
+
+  return {
+    totalResultados: total,
+    paginaActual: page,
+    paginasTotales: Math.ceil(total / limit),
+    data: data.map(p => ({
+      id: p.id,
+      cedulaRif: p.cedulaRif,
+      nombreCompleto: `${p.nombre} ${p.apellido}`,
+      activo: p.activo,
+      totalFincas: p._count.predios,
+      ubicacionPrincipal: p.predios[0] 
+        ? `${p.predios[0].parroquia.municipio.estado.nombre}, ${p.predios[0].parroquia.municipio.nombre}`
+        : 'Sin predios',
+      tieneMarcaRegistrada: !!p.marca
+    }))
+  }
+}
+```
+
+---
+
+## 📁 FASE 7: Wiring Final
+
+### 7.1 `src/routes/index.ts` - Orquestador
+```ts
+import { Router } from 'express'
+import authRoutes from './auth.routes.js'
+import geografiaRoutes from './geografia.routes.js'
+import productorRoutes from './productor.routes.js'
+import marcaRoutes from './marca.routes.js'
+import reporteRoutes from './reporte.routes.js'
+
+const router = Router()
+
+router.use('/auth', authRoutes)
+router.use('/geografia', geografiaRoutes)          // Pública
+router.use('/productores', authMiddleware, productorRoutes)
+router.use('/productores', authMiddleware, marcaRoutes)  // :productorId/marca
+router.use('/reportes', authMiddleware, reporteRoutes)
+
+export default router
+```
+
+### 7.2 `src/index.ts` - Entry Point
+```ts
+import express from 'express'
+import cors from 'cors'
+import { env } from './config/env.config.js'
+import { corsConfig } from './config/cors.config.js'
+import routes from './routes/index.js'
+import { errorMiddleware } from './middlewares/error.middleware.js'
+
+const app = express()
+
+app.use(cors(corsConfig))
+app.use(express.json())
+
+// Health check
+app.get('/health', async (req, res) => { /* ... */ })
+
+// Static files para marcas
+app.use('/marcas', express.static('storage/marcas'))
+
+// API Routes
+app.use('/api', routes)
+
+// Error handler (último)
+app.use(errorMiddleware)
+
+app.listen(env.PORT, () => console.log(`🚀 Server on ${env.PORT}`))
+```
+
+### 7.3 Estática `storage/marcas/`
+```bash
+mkdir -p storage/marcas
+```
+
+---
+
+## ✅ Checklist de Verificación Pre-Entrega
+
+| Componente | Verificación |
+|------------|--------------|
+| **Migraciones** | `npx prisma migrate status` → todo aplicado |
+| **Cliente Prisma** | `npx prisma generate` sin errores |
+| **Seed** | `npx tsx prisma/seed.ts` → datos en BD |
+| **Auth** | Login admin → JWT válido 8h |
+| **Geografía** | 3 endpoints responden JSON correcto |
+| **Productor+Predio** | POST transaccional → rollback si falla predio |
+| **Marca** | Subida PNG → pHash → Hamming ≤6 → 409 / éxito → archivo en storage + hash en BD |
+| **Static** | `GET /marcas/<hash>.png` sirve imagen |
+| **Reportes** | Filtros + paginación + `_count` optimizado |
+| **TS Build** | `npx tsc --noEmit` → 0 errores |
+
+---
+
+## 🗂️ Orden de Creación de Archivos (Sugerido)
+
+```
+Fase 0:
+├── prisma/schema.prisma (modificar)
+├── src/config/env.config.ts
+├── src/constants/regex.constants.ts
+├── src/constants/http-status.constants.ts
+├── src/types/express.d.ts
+├── src/middlewares/error.middleware.ts
+
+Fase 1:
+├── prisma/seed.ts
+
+Fase 2 (Auth):
+├── src/config/jwt.config.ts
+├── src/validators/auth.validator.ts
+├── src/services/auth.service.ts
+├── src/middlewares/auth.middleware.ts
+├── src/controllers/auth.controller.ts
+├── src/routes/auth.routes.ts
+
+Fase 3 (Geografía):
+├── src/validators/geografia.validator.ts
+├── src/services/geografia.service.ts
+├── src/controllers/geografia.controller.ts
+├── src/routes/geografia.routes.ts
+
+Fase 4 (Productores):
+├── src/validators/productor.validator.ts
+├── src/services/productor.service.ts
+├── src/controllers/productor.controller.ts
+├── src/routes/productor.routes.ts
+
+Fase 5 (Marcas):
+├── src/middlewares/upload.middleware.ts
+├── src/utils/hash-comparer.util.ts
+├── src/services/imagen.service.ts
+├── src/controllers/marca.controller.ts
+├── src/routes/marca.routes.ts
+
+Fase 6 (Reportes):
+├── src/services/reporte.service.ts
+├── src/controllers/reporte.controller.ts
+├── src/routes/reporte.routes.ts
+
+Fase 7:
+├── src/routes/index.ts
+├── src/index.ts (actualizar)
+```
+
+---
+
+¿Quieres que inicie la implementación por **Fase 0** (schema + migración + config base)? O ¿prefieres que prepare primero los **datos geopolíticos completos en JSON** para el seed?

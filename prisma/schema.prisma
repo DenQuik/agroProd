@@ -20,11 +20,13 @@ model Estado {
 }
 
 model Municipio {
-  id        Int         @id @default(autoincrement())
-  nombre    String
-  estadoId  Int
-  estado    Estado      @relation(fields: [estadoId], references: [id])
+  id         Int         @id @default(autoincrement())
+  nombre     String
+  estadoId   Int
+  estado     Estado      @relation(fields: [estadoId], references: [id])
   parroquias Parroquia[]
+
+  @@unique([nombre, estadoId])
 }
 
 model Parroquia {
@@ -33,6 +35,8 @@ model Parroquia {
   municipioId Int
   municipio   Municipio @relation(fields: [municipioId], references: [id])
   predios     Predio[]
+
+  @@unique([nombre, municipioId])
 }
 
 // 2. Productores y sus Marcas
@@ -40,6 +44,7 @@ model Productor {
   id        Int      @id @default(autoincrement())
   cedulaRif String   @unique
   nombre    String
+  apellido  String
   telefono  String
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -61,10 +66,21 @@ model Marca {
 model Predio {
   id          Int       @id @default(autoincrement())
   nombre      String
-  coordenadas String?   // Opcional por si quieren meter latitud/longitud
+  latitud     Float
+  longitud    Float
   sector      String
   parroquiaId Int
   parroquia   Parroquia @relation(fields: [parroquiaId], references: [id])
   productorId Int
   productor   Productor @relation(fields: [productorId], references: [id], onDelete: Cascade)
+}
+
+// 4. Usuarios del Sistema
+model Usuario {
+  id       Int      @id @default(autoincrement())
+  username String   @unique
+  password String
+  nombre   String
+  rol      String
+  creadoEn DateTime @default(now())
 }
